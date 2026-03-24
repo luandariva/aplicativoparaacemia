@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
-import { fetchGamificacaoLeaderboard, fetchGamificacaoResumo, fetchUsuarioBadges, setDisplayName, setRankingOptIn } from '../lib/gamificacao'
+import { fetchGamificacaoLeaderboard, fetchGamificacaoResumo } from '../lib/gamificacao'
 import { resolveUsuarioDb } from '../lib/usuarioDb'
+import ConquistasPage from './Conquistas'
 
 function pick(obj, keys, fallback = null) {
   for (const key of keys) {
@@ -738,12 +739,7 @@ function iniciais(str) {
 export function Perfil() {
   const { user } = useAuth()
   const [row, setRow] = useState(null)
-  const [usuarioId, setUsuarioId] = useState(null)
-  const [badges, setBadges] = useState([])
-  const [nomeExibicao, setNomeExibicao] = useState('')
-  const [optIn, setOptIn] = useState(true)
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -753,198 +749,62 @@ export function Perfil() {
         return
       }
       setLoading(true)
-      const { row: urow, usuarioId: uid } = await resolveUsuarioDb(user)
+      const { row: urow } = await resolveUsuarioDb(user)
       if (!alive) return
       setRow(urow)
-      setUsuarioId(uid)
-      setNomeExibicao(pick(urow || {}, ['display_name'], '') || '')
-      setOptIn(urow?.ranking_opt_in !== false)
-
-      const br = await fetchUsuarioBadges(uid)
-      if (alive && !br.error) setBadges(br.data || [])
       if (alive) setLoading(false)
     }
     load()
     return () => { alive = false }
   }, [user?.id, user?.email])
 
-  const nomeMostrado = nomeExibicao.trim() || user?.email?.split('@')[0] || 'Aluno'
-
-  async function guardarNome() {
-    setMsg('')
-    const err = await setDisplayName(nomeExibicao)
-    if (err) setMsg(err)
-    else setMsg('Nome de exibicao guardado.')
-  }
-
-  async function alternarRanking() {
-    const next = !optIn
-    setOptIn(next)
-    const err = await setRankingOptIn(next)
-    if (err) {
-      setOptIn(!next)
-      setMsg(err)
-    } else {
-      setMsg(next ? 'Ranking activado.' : 'Ranking desactivado (privado).')
-    }
-  }
+  const nomeMostrado = (pick(row || {}, ['display_name'], '') || '').trim()
+    || user?.email?.split('@')[0]
+    || 'Aluno'
 
   return (
     <div style={{
       minHeight: '100dvh',
       display: 'flex',
       flexDirection: 'column',
-      gap: 14,
-      padding: '16px',
+      gap: 12,
       paddingTop: 'calc(var(--safe-top) + 12px)',
       paddingBottom: 'calc(86px + var(--safe-bottom))',
+      overflowY: 'auto',
     }}>
-      <div>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Conta</p>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 900, color: 'var(--green)' }}>
-          Perfil
-        </h1>
-      </div>
-
-      {msg && (
+      <div style={{ padding: '0 16px' }}>
         <div style={{
-          fontSize: 12, color: 'var(--text-muted)', borderRadius: 12, border: '1px solid var(--border)',
-          padding: 10, background: 'var(--bg-card)',
+          borderRadius: 16,
+          border: '1px solid var(--border)',
+          background: 'linear-gradient(145deg, #13161b, #0a0c0f)',
+          padding: 14,
         }}>
-          {msg}
-        </div>
-      )}
-
-      <div style={{
-        borderRadius: 16,
-        border: '1px solid var(--border)',
-        background: 'linear-gradient(145deg, #13161b, #0a0c0f)',
-        padding: 14,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 54,
-            height: 54,
-            borderRadius: '50%',
-            background: 'var(--green)',
-            color: '#111',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 800,
-            fontSize: 20,
-          }}>
-            {iniciais(nomeMostrado)}
-          </div>
-          <div>
-            <p style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{nomeMostrado}</p>
-            <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-              {loading ? 'A carregar…' : (user?.email || '—')}
-            </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 54,
+              height: 54,
+              borderRadius: '50%',
+              background: 'var(--green)',
+              color: '#111',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 800,
+              fontSize: 20,
+            }}>
+              {iniciais(nomeMostrado)}
+            </div>
+            <div>
+              <p style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--font-display)' }}>{nomeMostrado}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                {loading ? 'A carregar…' : (user?.email || '—')}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div style={{
-        borderRadius: 16,
-        border: '1px solid var(--border)',
-        background: 'var(--bg-card)',
-        padding: 14,
-      }}>
-        <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Nome no ranking</p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            value={nomeExibicao}
-            onChange={(e) => setNomeExibicao(e.target.value)}
-            placeholder="Como aparece no ranking"
-            style={{
-              flex: 1, minWidth: 160, borderRadius: 10, border: '1px solid var(--border)',
-              background: 'var(--bg-input)', color: 'var(--text)', padding: '10px 12px', fontSize: 14,
-            }}
-          />
-          <button
-            type="button"
-            onClick={guardarNome}
-            style={{
-              borderRadius: 10, border: '1px solid var(--border)', background: 'var(--green)',
-              color: '#111', padding: '10px 14px', fontSize: 12, fontWeight: 800,
-            }}
-          >
-            Guardar
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Aparecer no ranking</span>
-          <button
-            type="button"
-            onClick={alternarRanking}
-            style={{
-              marginLeft: 'auto',
-              borderRadius: 999,
-              border: '1px solid var(--border)',
-              background: optIn ? 'rgba(201,242,77,0.2)' : 'transparent',
-              color: 'var(--green)',
-              padding: '6px 12px',
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            {optIn ? 'Activado' : 'Desactivado'}
-          </button>
-        </div>
-      </div>
-
-      <div style={{
-        borderRadius: 16,
-        border: '1px solid var(--border)',
-        background: 'var(--bg-card)',
-        padding: 14,
-      }}>
-        <h2 style={{ fontSize: 18, fontFamily: 'var(--font-display)', marginBottom: 10 }}>Conquistas</h2>
-        {badges.length === 0 && (
-          <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>Ainda sem badges — treine e complete o desafio semanal.</p>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {badges.map((ub) => {
-            const b = ub.badge
-            return (
-              <div
-                key={ub.id}
-                style={{
-                  borderRadius: 12, border: '1px solid var(--border)', padding: 10,
-                  background: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                <p style={{ fontSize: 20, marginBottom: 4 }}>{b?.icone || '★'}</p>
-                <p style={{ fontSize: 14, fontWeight: 700 }}>{b?.titulo || 'Badge'}</p>
-                <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>{b?.descricao || ''}</p>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div style={{
-        borderRadius: 16,
-        border: '1px solid var(--border)',
-        background: 'var(--bg-card)',
-        padding: 14,
-      }}>
-        {[
-          { label: 'Usuario (app)', value: usuarioId || '—' },
-        ].map((item, i) => (
-          <div key={item.label} style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            padding: '10px 0',
-            borderBottom: 'none',
-            gap: 8,
-          }}>
-            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{item.label}</span>
-            <span style={{ fontSize: 11, wordBreak: 'break-all', textAlign: 'right' }}>{item.value}</span>
-          </div>
-        ))}
-      </div>
+      <ConquistasPage embeddedInPerfil />
     </div>
   )
 }

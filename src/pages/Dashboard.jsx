@@ -1,4 +1,9 @@
+import { useNavigate } from 'react-router-dom'
+import GamifWidget from '../components/GamifWidget'
+
 export default function Dashboard() {
+  const navigate = useNavigate()
+
   return (
     <div style={{
       minHeight: '100dvh', display: 'flex', flexDirection: 'column',
@@ -16,10 +21,14 @@ export default function Dashboard() {
         </h1>
       </div>
 
+      <div style={{ animation: 'floatIn .38s ease .04s both' }}>
+        <GamifWidget onVerConquistas={() => navigate('/perfil')} />
+      </div>
+
       <div style={{
         borderRadius: 20, border: '1px solid var(--border)',
         background: 'linear-gradient(145deg, #13161b, #0a0c0f)', padding: 16,
-        boxShadow: 'var(--shadow-soft)', animation: 'floatIn .4s ease .05s both',
+        boxShadow: 'var(--shadow-soft)', animation: 'floatIn .4s ease .08s both',
       }}>
         <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr', alignItems: 'center', gap: 14 }}>
           <div style={{
@@ -50,7 +59,7 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        <button style={{
+        <button type="button" style={{
           width: '100%', marginTop: 12, borderRadius: 12, background: 'var(--green)',
           color: '#111', padding: '10px 12px', fontSize: 12, fontWeight: 800,
           textTransform: 'uppercase', letterSpacing: '0.04em',
@@ -59,7 +68,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <div style={{ animation: 'floatIn .45s ease .1s both' }}>
+      <div style={{ animation: 'floatIn .45s ease .12s both' }}>
         <div style={{
           borderRadius: 16,
           border: '1px solid var(--border)',
@@ -83,10 +92,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ animation: 'floatIn .5s ease .15s both' }}>
+      <div style={{ animation: 'floatIn .5s ease .16s both' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h2 style={{ fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 700 }}>Seus desafios</h2>
-          <button style={{
+          <button type="button" style={{
             color: '#111',
             background: 'var(--green)',
             border: '1px solid rgba(0,0,0,0.25)',
@@ -109,7 +118,7 @@ export default function Dashboard() {
           <p style={{ fontSize: 21, fontWeight: 800, fontFamily: 'var(--font-display)' }}>Corrida na rua</p>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ color: 'var(--green)', fontSize: 13, fontWeight: 700 }}>30 min</p>
-            <button style={{
+            <button type="button" style={{
               width: 34, height: 34, borderRadius: '50%', background: 'var(--green)',
               color: '#101010', display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontWeight: 800,

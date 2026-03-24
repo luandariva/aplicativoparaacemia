@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
-import { fetchGamificacaoResumo } from '../lib/gamificacao'
+import { fetchGamificacaoResumo, fetchUsuarioBadges } from '../lib/gamificacao'
+import { BadgeToast, PontosToast } from '../components/GamifToasts'
 
 const CATEGORIAS = [
   { id: 'all', label: 'Todos os treinos' },
@@ -502,7 +503,8 @@ export default function Treino() {
   const [expandido, setExpandido] = useState(null)
   const [concluindo, setConcluindo] = useState(false)
   const [concluido, setConcluido] = useState(false)
-  const [gamifToast, setGamifToast] = useState(null)
+  const [toastBadge, setToastBadge] = useState(null)
+  const [toastPontos, setToastPontos] = useState(null)
   const scrollRef = useRef(null)
   const todosTreinos = treinosPlano
   const personais = ['todos', ...Array.from(new Set(todosTreinos.map((t) => t.personal)))]
@@ -564,12 +566,6 @@ export default function Treino() {
     return () => { alive = false }
   }, [user?.email, user?.id])
 
-  useEffect(() => {
-    if (!gamifToast) return
-    const t = setTimeout(() => setGamifToast(null), 6000)
-    return () => clearTimeout(t)
-  }, [gamifToast])
-
   const treinosFiltrados = todosTreinos.filter((t) => {
     const termo = busca.trim().toLowerCase()
     const passouBusca = !termo ||
@@ -581,6 +577,19 @@ export default function Treino() {
     const passouPersonal = filtroPersonal === 'todos' || t.personal === filtroPersonal
     return passouBusca && passouCategoria && passouPersonal
   })
+
+  const toastLayer = (
+    <>
+      {toastBadge && <BadgeToast badge={toastBadge} onClose={() => setToastBadge(null)} />}
+      {toastPontos && (
+        <PontosToast
+          texto={toastPontos}
+          top={toastBadge ? 'calc(var(--safe-top) + 96px)' : 'calc(var(--safe-top) + 16px)'}
+          onClose={() => setToastPontos(null)}
+        />
+      )}
+    </>
+  )
 
   const totalExercicios = treino.exercicios.length
   const concluidos = treino.exercicios.filter(e => e.concluido).length
@@ -737,14 +746,29 @@ export default function Treino() {
       if (insertErr) throw insertErr
 
       const gRes = await fetchGamificacaoResumo()
+      let msgPontos = null
       if (gRes.data?.ok) {
         const r = gRes.data
         const rank =
           r.ranking_opt_in && r.posicao_ranking > 0
             ? ` · Ranking #${r.posicao_ranking}`
             : ''
-        setGamifToast(`Pontos da semana: ${r.pontos_semana}${rank}`)
+        msgPontos = `Treino registrado! Semana: ${r.pontos_semana} pts${rank}`
       }
+
+      let badgeDesbloqueado = null
+      const badRes = await fetchUsuarioBadges(usuarioDbId)
+      if (badRes.data?.length) {
+        const agora = Date.now()
+        const limiteMs = 30000
+        const candidato = badRes.data.find(
+          (ub) => ub.badge && ub.concedido_em && agora - new Date(ub.concedido_em).getTime() < limiteMs,
+        )
+        if (candidato?.badge) badgeDesbloqueado = candidato.badge
+      }
+
+      if (badgeDesbloqueado) setToastBadge(badgeDesbloqueado)
+      if (msgPontos) setToastPontos(msgPontos)
 
       const hook = import.meta.env.VITE_N8N_WEBHOOK_TREINO
       if (hook) {
@@ -768,6 +792,8 @@ export default function Treino() {
 
   if (!treinoSelecionadoId) {
     return (
+      <>
+      {toastLayer}
       <div style={{
         minHeight: '100dvh', padding: '16px', paddingTop: 'calc(var(--safe-top) + 12px)',
         paddingBottom: 'calc(86px + var(--safe-bottom))', display: 'flex',
@@ -1149,11 +1175,14 @@ export default function Treino() {
           )}
         </div>
       </div>
+      </>
     )
   }
 
   if (concluido) {
     return (
+      <>
+      {toastLayer}
       <div style={{
         minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexDirection: 'column', padding: 28, textAlign: 'center',
@@ -1166,17 +1195,9 @@ export default function Treino() {
           ✓
         </div>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 30, marginBottom: 8 }}>Treino concluido!</h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: gamifToast ? 10 : 20 }}>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
           Saldo atualizado e envio para WhatsApp em andamento.
         </p>
-        {gamifToast && (
-          <p style={{
-            color: 'var(--green)', fontWeight: 700, fontSize: 14, marginBottom: 20,
-            maxWidth: 320, lineHeight: 1.4,
-          }}>
-            {gamifToast}
-          </p>
-        )}
         <button
           onClick={() => { setConcluido(false); setTreinoSelecionadoId(null) }}
           style={{
@@ -1187,10 +1208,13 @@ export default function Treino() {
           Voltar para catalogo
         </button>
       </div>
+      </>
     )
   }
 
   return (
+    <>
+    {toastLayer}
     <div style={{
       height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column',
       paddingTop: 'var(--safe-top)', overflow: 'hidden',
@@ -1275,5 +1299,6 @@ export default function Treino() {
         )}
       </div>
     </div>
+    </>
   )
 }
