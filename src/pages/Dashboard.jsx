@@ -102,11 +102,11 @@ export default function Dashboard() {
         <div style={{
           borderRadius: 16, border: '1px solid var(--border)', overflow: 'hidden',
           minHeight: 190,
-          backgroundImage: 'linear-gradient(0deg, rgba(0,0,0,0.65), rgba(0,0,0,0.1)), url(https://images.unsplash.com/photo-1605296867304-46d5465a13f1?auto=format&fit=crop&w=900&q=60)',
+          backgroundImage: 'linear-gradient(0deg, rgba(0,0,0,0.65), rgba(0,0,0,0.1)), url(https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?auto=format&fit=crop&w=900&q=60)',
           backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex',
           flexDirection: 'column', justifyContent: 'flex-end', padding: 14,
         }}>
-          <p style={{ fontSize: 21, fontWeight: 800, fontFamily: 'var(--font-display)' }}>Corrida na esteira</p>
+          <p style={{ fontSize: 21, fontWeight: 800, fontFamily: 'var(--font-display)' }}>Corrida na rua</p>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ color: 'var(--green)', fontSize: 13, fontWeight: 700 }}>30 min</p>
             <button style={{

@@ -9,7 +9,7 @@ import BottomNav from './components/BottomNav'
 function PrivateLayout({ children }) {
   return (
     <div style={{ position: 'relative', height: '100dvh', overflow: 'hidden' }}>
-      <div style={{ height: '100%', overflowY: 'auto' }}>
+      <div style={{ height: '100%', minHeight: 0, overflowY: 'auto' }}>
         {children}
       </div>
       <BottomNav />

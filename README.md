@@ -63,6 +63,8 @@ create table treinos_plano (
   personal_id uuid,
   data_prevista date,
   exercicios jsonb,
+  criado_pelo_aluno boolean not null default false,
+  categoria text,
   created_at timestamptz default now()
 );
 
@@ -79,6 +81,12 @@ create table treinos_realizados (
   concluido boolean default false
 );
 ```
+
+Se `treinos_plano` ja existir sem colunas novas, rode no **SQL Editor** do Supabase o script unificado:
+
+`scripts/migrations/treinos_plano_colunas_app.sql`
+
+(Alternativa: `add_criado_pelo_aluno_treinos_plano.sql` e depois `add_categoria_treinos_plano.sql`.)
 
 ## Deploy sugerido
 - **Vercel** (zero config para Vite + React)
