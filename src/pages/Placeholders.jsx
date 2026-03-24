@@ -371,6 +371,7 @@ export function Nutricao() {
               textAlign: 'left',
               border: 'none',
               background: 'transparent',
+              color: 'var(--text)',
               cursor: r.canOpen ? 'pointer' : 'default',
               display: 'flex',
               justifyContent: 'space-between',
@@ -380,7 +381,7 @@ export function Nutricao() {
             }}
           >
             <div>
-              <p style={{ fontSize: 14 }}>{r.nome}</p>
+              <p style={{ fontSize: 14, color: 'var(--text)' }}>{r.nome}</p>
               <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>{r.kcal}</p>
             </div>
             <span style={{
