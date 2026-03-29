@@ -52,6 +52,44 @@ function dayKey(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
+function formatShortDate(d) {
+  return new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short' }).format(d)
+}
+
+function formatWeekRange(monday, sunday) {
+  return `${formatShortDate(monday)} – ${formatShortDate(sunday)}`
+}
+
+function getPeriodRange(periodo, offset) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  if (periodo === 'dia') {
+    const d = new Date(today)
+    d.setDate(d.getDate() + offset)
+    const label = offset === 0 ? 'Hoje' : offset === -1 ? 'Ontem' : formatDate(d)
+    return { start: d, end: d, label }
+  }
+
+  if (periodo === 'semana') {
+    const day = today.getDay()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1) + offset * 7)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    const label = offset === 0 ? 'Esta semana' : formatWeekRange(monday, sunday)
+    return { start: monday, end: sunday, label }
+  }
+
+  // mes
+  const d = new Date(today.getFullYear(), today.getMonth() + offset, 1)
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+  const label = offset === 0
+    ? 'Este mês'
+    : new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(d)
+  return { start: d, end, label }
+}
+
 /* ─── Icons ─── */
 function DumbbellIcon({ size = 18, color = 'var(--lime)' }) {
   return (
@@ -75,19 +113,12 @@ function MealIcon({ size = 18, color = 'var(--amber)' }) {
   )
 }
 
-function CalendarIcon({ size = 18, color = 'var(--text-3)' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  )
-}
-
 function ChevronIcon({ direction = 'down', size = 16, color = 'var(--text-3)' }) {
-  const rotation = direction === 'up' ? 180 : 0
+  const rotations = { down: 0, up: 180, left: 90, right: -90 }
+  const rotation = rotations[direction] ?? 0
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: `rotate(${rotation}deg)`, transition: 'transform .2s' }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: `rotate(${rotation}deg)`, transition: 'transform .2s' }}>
       <polyline points="6 9 12 15 18 9" />
     </svg>
   )
@@ -101,17 +132,18 @@ function EmptyIcon({ size = 48 }) {
   )
 }
 
-const ITEMS_PER_PAGE = 20
-
 export default function Historico() {
   const { user } = useAuth()
+  const [periodo, setPeriodo] = useState('semana')
+  const [offset, setOffset] = useState(0)
   const [filtro, setFiltro] = useState('todos')
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
   const [treinos, setTreinos] = useState([])
   const [refeicoes, setRefeicoes] = useState([])
   const [expandedId, setExpandedId] = useState(null)
-  const [page, setPage] = useState(1)
+
+  useEffect(() => { setOffset(0) }, [periodo])
 
   useEffect(() => {
     let alive = true
@@ -161,10 +193,7 @@ export default function Historico() {
     return () => { alive = false }
   }, [user?.id, user?.email])
 
-  // Reset page when filter changes
-  useEffect(() => { setPage(1) }, [filtro])
-
-  const items = useMemo(() => {
+  const allItems = useMemo(() => {
     const treinoItems = treinos.map((t) => ({
       id: `treino-${t.id}`,
       type: 'treino',
@@ -189,45 +218,74 @@ export default function Historico() {
       observacoes: pick(r, ['observacoes', 'observacao', 'descricao'], ''),
     }))
 
-    let all = []
-    if (filtro === 'todos') all = [...treinoItems, ...refeicaoItems]
-    else if (filtro === 'treino') all = treinoItems
-    else all = refeicaoItems
+    return [...treinoItems, ...refeicaoItems].sort((a, b) => new Date(b.data) - new Date(a.data))
+  }, [treinos, refeicoes])
 
-    all.sort((a, b) => new Date(b.data) - new Date(a.data))
-    return all
-  }, [treinos, refeicoes, filtro])
+  const filteredByPeriod = useMemo(() => {
+    const { start, end } = getPeriodRange(periodo, offset)
+    return allItems.filter((item) => {
+      if (!item.data) return false
+      const d = new Date(item.data)
+      d.setHours(0, 0, 0, 0)
+      return d >= start && d <= end
+    })
+  }, [allItems, periodo, offset])
 
-  const paginatedItems = useMemo(() => items.slice(0, page * ITEMS_PER_PAGE), [items, page])
-  const hasMore = paginatedItems.length < items.length
+  const displayItems = useMemo(() => {
+    if (filtro === 'treino') return filteredByPeriod.filter(i => i.type === 'treino')
+    if (filtro === 'refeicao') return filteredByPeriod.filter(i => i.type === 'refeicao')
+    return filteredByPeriod
+  }, [filteredByPeriod, filtro])
+
+  const stats = useMemo(() => {
+    const trTotal = filteredByPeriod.filter(i => i.type === 'treino').length
+    const refTotal = filteredByPeriod.filter(i => i.type === 'refeicao').length
+    const kcalTotal = filteredByPeriod.filter(i => i.type === 'refeicao').reduce((acc, r) => acc + r.kcal, 0)
+    const uniqueDays = new Set(filteredByPeriod.map(i => i.data ? dayKey(i.data) : null).filter(Boolean))
+    return { trTotal, refTotal, kcalTotal, diasAtivos: uniqueDays.size }
+  }, [filteredByPeriod])
+
+  const kcalFormatted = stats.kcalTotal > 9999
+    ? `${(stats.kcalTotal / 1000).toFixed(1)}k`
+    : stats.kcalTotal
 
   const grouped = useMemo(() => {
     const map = new Map()
-    for (const item of paginatedItems) {
+    for (const item of displayItems) {
       const key = item.data ? dayKey(item.data) : 'sem-data'
       if (!map.has(key)) map.set(key, { dateLabel: formatDate(item.data), items: [] })
       map.get(key).items.push(item)
     }
     return [...map.entries()]
-  }, [paginatedItems])
-
-  // Stats
-  const stats = useMemo(() => {
-    const trTotal = treinos.length
-    const refTotal = refeicoes.length
-    const kcalTotal = refeicoes.reduce((acc, r) => acc + toNum(pick(r, ['kcal', 'calorias', 'calorias_kcal'])), 0)
-    const uniqueDays = new Set([
-      ...treinos.map(t => dayKey(t.data_hora || '')),
-      ...refeicoes.map(r => dayKey(pick(r, ['data_hora', 'horario', 'created_at']) || '')),
-    ].filter(Boolean))
-    return { trTotal, refTotal, kcalTotal, diasAtivos: uniqueDays.size }
-  }, [treinos, refeicoes])
+  }, [displayItems])
 
   const toggleExpand = useCallback((id) => {
     setExpandedId(prev => prev === id ? null : id)
   }, [])
 
-  const tabs = [
+  const periodRange = getPeriodRange(periodo, offset)
+
+  const statItems = periodo === 'dia'
+    ? [
+        { label: 'Treinos', value: stats.trTotal, color: 'var(--lime)' },
+        { label: 'Refeições', value: stats.refTotal, color: 'var(--amber)' },
+        { label: 'Kcal', value: kcalFormatted, color: 'var(--red)' },
+        { label: 'Itens', value: filteredByPeriod.length, color: 'var(--blue)' },
+      ]
+    : [
+        { label: 'Treinos', value: stats.trTotal, color: 'var(--lime)' },
+        { label: 'Refeições', value: stats.refTotal, color: 'var(--amber)' },
+        { label: 'Kcal', value: kcalFormatted, color: 'var(--red)' },
+        { label: 'Dias', value: stats.diasAtivos, color: 'var(--blue)' },
+      ]
+
+  const periodoTabs = [
+    { id: 'dia', label: 'Dia' },
+    { id: 'semana', label: 'Semana' },
+    { id: 'mes', label: 'Mês' },
+  ]
+
+  const filtroTabs = [
     { id: 'todos', label: 'Todos', icon: '📋' },
     { id: 'treino', label: 'Treinos', icon: '💪' },
     { id: 'refeicao', label: 'Refeições', icon: '🍽️' },
@@ -241,15 +299,46 @@ export default function Historico() {
         <h1 className="hist-title">Histórico</h1>
       </div>
 
-      {/* ─── Stats Overview ─── */}
+      {/* ─── Period Selector ─── */}
+      <div className="tab-group anim">
+        {periodoTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setPeriodo(tab.id)}
+            className={`tab-btn ${periodo === tab.id ? 'active' : ''}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── Navigation Row ─── */}
+      <div className="nav-row anim">
+        <button
+          type="button"
+          className="nav-btn"
+          onClick={() => setOffset(o => o - 1)}
+          aria-label="Período anterior"
+        >
+          <ChevronIcon direction="left" size={18} color="var(--text-2)" />
+        </button>
+        <span className="nav-label">{periodRange.label}</span>
+        <button
+          type="button"
+          className="nav-btn"
+          onClick={() => setOffset(o => o + 1)}
+          disabled={offset >= 0}
+          aria-label="Próximo período"
+          style={{ opacity: offset >= 0 ? 0.3 : 1 }}
+        >
+          <ChevronIcon direction="right" size={18} color="var(--text-2)" />
+        </button>
+      </div>
+
+      {/* ─── Period Stats ─── */}
       <div className="resumo-card anim" style={{ padding: 16 }}>
         <div className="stats-grid">
-          {[
-            { label: 'Treinos', value: stats.trTotal, color: 'var(--lime)' },
-            { label: 'Refeições', value: stats.refTotal, color: 'var(--amber)' },
-            { label: 'Kcal', value: stats.kcalTotal > 9999 ? `${(stats.kcalTotal / 1000).toFixed(1)}k` : stats.kcalTotal, color: 'var(--red)' },
-            { label: 'Dias', value: stats.diasAtivos, color: 'var(--blue)' },
-          ].map((s) => (
+          {statItems.map((s) => (
             <div key={s.label} className="stat-item">
               <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
               <div className="stat-label">{s.label}</div>
@@ -260,19 +349,16 @@ export default function Historico() {
 
       {/* ─── Filter Tabs ─── */}
       <div className="tab-group">
-        {tabs.map((tab) => {
-          const ativo = tab.id === filtro
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setFiltro(tab.id)}
-              className={`tab-btn ${ativo ? 'active' : ''}`}
-            >
-              <span style={{ fontSize: 14 }}>{tab.icon}</span>
-              {tab.label}
-            </button>
-          )
-        })}
+        {filtroTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setFiltro(tab.id)}
+            className={`tab-btn ${filtro === tab.id ? 'active' : ''}`}
+          >
+            <span style={{ fontSize: 14 }}>{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* ─── Loading ─── */}
@@ -291,10 +377,10 @@ export default function Historico() {
       )}
 
       {/* ─── Empty State ─── */}
-      {!loading && !erro && items.length === 0 && (
+      {!loading && !erro && displayItems.length === 0 && (
         <div className="dash-warning anim" style={{ padding: '40px 20px', flexDirection: 'column', gap: 12 }}>
           <EmptyIcon />
-          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-2)' }}>Nenhum registro encontrado</p>
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-2)' }}>Nenhum registro neste período</p>
         </div>
       )}
 
@@ -308,11 +394,10 @@ export default function Historico() {
           </div>
 
           <div className="hist-list">
-            {group.items.map((item, idx) => {
+            {group.items.map((item) => {
               const isExpanded = expandedId === item.id
               const isTreino = item.type === 'treino'
               const accentColor = isTreino ? 'var(--lime)' : 'var(--amber)'
-              const bgAccent = isTreino ? 'var(--lime-dim)' : 'rgba(255, 145, 77, 0.08)'
 
               return (
                 <div key={item.id}>
@@ -400,18 +485,6 @@ export default function Historico() {
           </div>
         </div>
       ))}
-
-      {/* ─── Load More ─── */}
-      {hasMore && !loading && (
-        <button
-          type="button"
-          onClick={() => setPage(p => p + 1)}
-          className="btn anim"
-          style={{ width: '100%', marginTop: 8 }}
-        >
-          Carregar mais
-        </button>
-      )}
     </div>
   )
 }
