@@ -12,6 +12,33 @@ function toNum(value) {
   return Number.isFinite(n) ? n : 0
 }
 
+function normalizePesoKg(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}
+
+function estimarKcalTreinoRealizado(treinoRealizado, pesoKg) {
+  const kcalSalva = Number(treinoRealizado?.kcal_gastas)
+  if (Number.isFinite(kcalSalva) && kcalSalva > 0) return kcalSalva
+  if (!Number.isFinite(pesoKg) || pesoKg <= 0) return 0
+  if (!Array.isArray(treinoRealizado?.exercicios)) return 0
+
+  const total = treinoRealizado.exercicios.reduce((acc, ex) => {
+    const met = Number(ex?.met) || 0
+    if (met <= 0) return acc
+    const duracaoMinRaw = Number(ex?.duracao_min)
+    const series = Math.max(1, Number(ex?.series) || 1)
+    const duracaoMin = Number.isFinite(duracaoMinRaw) && duracaoMinRaw > 0
+      ? duracaoMinRaw
+      : Math.max(1, Math.round(series * 2.5))
+    const kcalEx = (met * 3.5 * pesoKg / 200) * duracaoMin
+    return acc + kcalEx
+  }, 0)
+
+  return Number.isFinite(total) && total > 0 ? total : 0
+}
+
 function inicioEFimDoDia(baseDate = new Date()) {
   const inicio = new Date(baseDate)
   inicio.setHours(0, 0, 0, 0)
@@ -28,6 +55,7 @@ export default function Dashboard() {
   const [erro, setErro] = useState('')
   const [treinoHoje, setTreinoHoje] = useState(null)
   const [treinoFoiConcluidoHoje, setTreinoFoiConcluidoHoje] = useState(false)
+  const [treinosRealizadosHoje, setTreinosRealizadosHoje] = useState([])
   const [refeicoesHoje, setRefeicoesHoje] = useState([])
 
   useEffect(() => {
@@ -46,8 +74,9 @@ export default function Dashboard() {
       setErro('')
 
       try {
-        const { usuarioId } = await resolveUsuarioDb(user)
+        const { usuarioId, row } = await resolveUsuarioDb(user)
         if (!usuarioId) throw new Error('Usuario não encontrado.')
+        const pesoUsuarioKg = normalizePesoKg(row?.peso_atual_kg)
 
         const { inicio, fim } = inicioEFimDoDia(selectedDate)
         const hojeIso = inicio.toISOString().slice(0, 10)
@@ -62,13 +91,12 @@ export default function Dashboard() {
             .limit(1),
           supabase
             .from('treinos_realizados')
-            .select('id, nome, exercicios, concluido, data_hora')
+            .select('id, nome, exercicios, concluido, data_hora, kcal_gastas')
             .eq('usuario_id', usuarioId)
             .gte('data_hora', inicio.toISOString())
             .lt('data_hora', fim.toISOString())
             .eq('concluido', true)
-            .order('data_hora', { ascending: false })
-            .limit(1),
+            .order('data_hora', { ascending: false }),
           supabase
             .from('refeicoes')
             .select('*')
@@ -83,9 +111,16 @@ export default function Dashboard() {
         if (refeicoesRes.error) throw refeicoesRes.error
 
         if (!alive) return
-        const treinoConcluidoHoje = treinoRealizadoRes.data?.[0] || null
+        const treinosConcluidosHoje = treinoRealizadoRes.data || []
+        const treinoConcluidoHoje = treinosConcluidosHoje[0] || null
         const treinoPlanejadoHoje = treinoPlanoRes.data?.[0] || null
         setTreinoFoiConcluidoHoje(Boolean(treinoConcluidoHoje))
+        setTreinosRealizadosHoje(
+          treinosConcluidosHoje.map((t) => ({
+            ...t,
+            kcal_gastas_calc: estimarKcalTreinoRealizado(t, pesoUsuarioKg),
+          })),
+        )
         setTreinoHoje(treinoConcluidoHoje || treinoPlanejadoHoje || null)
         setRefeicoesHoje(refeicoesRes.data || [])
       } catch (err) {
@@ -108,9 +143,16 @@ export default function Dashboard() {
     const total = refeicoesHoje.length
     const pendentes = refeicoesHoje.filter((r) => String(r.status || '').toLowerCase().includes('pend')).length
     const kcal = refeicoesHoje.reduce((acc, r) => acc + toNum(r.kcal ?? r.calorias ?? r.calorias_kcal), 0)
-    const proteinas = refeicoesHoje.reduce((acc, r) => acc + toNum(r.proteina_g ?? r.proteina ?? r.proteinas_g ?? 0), 0)
-    return { total, pendentes, kcal, proteinas }
+    return { total, pendentes, kcal }
   }, [refeicoesHoje])
+
+  const kcalTreinoDia = useMemo(() => {
+    const total = treinosRealizadosHoje.reduce(
+      (acc, t) => acc + toNum(t.kcal_gastas_calc ?? t.kcal_gastas),
+      0,
+    )
+    return Math.max(0, Math.round(total))
+  }, [treinosRealizadosHoje])
 
   const exerciciosTreinoHoje = Array.isArray(treinoHoje?.exercicios) ? treinoHoje.exercicios.length : 0
 
@@ -139,12 +181,13 @@ export default function Dashboard() {
       {/* ─── Resumo Diário – Premium Card ─── */}
       {(() => {
         const KCAL_META = 2000
-        const PROT_META = 150
+        const TREINO_KCAL_META = 500
         const kcalPct = Math.min(resumoRefeicoes.kcal / KCAL_META, 1)
-        const protPct = Math.min(resumoRefeicoes.proteinas / PROT_META, 1)
+        const treinoKcalPct = Math.min(kcalTreinoDia / TREINO_KCAL_META, 1)
+        const balancoCalorico = resumoRefeicoes.kcal - KCAL_META
         const circumference = 2 * Math.PI * 28
         const kcalOffset = circumference * (1 - kcalPct)
-        const protOffset = circumference * (1 - protPct)
+        const treinoKcalOffset = circumference * (1 - treinoKcalPct)
 
         const treinoStatus = treinoFoiConcluidoHoje
           ? { label: 'Concluído', color: 'var(--lime)', bg: 'rgba(75,240,122,0.12)' }
@@ -184,17 +227,21 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#fff', fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 800, lineHeight: 1 }}>{resumoRefeicoes.kcal}</div>
-                  <div style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 500, marginTop: 2 }}>/ {KCAL_META} kcal</div>
+                  <div style={{ color: '#fff', fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 800, lineHeight: 1 }}>
+                    {balancoCalorico > 0 ? '+' : ''}{balancoCalorico}
+                  </div>
+                  <div style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 500, marginTop: 2 }}>
+                    meta {KCAL_META} kcal
+                  </div>
                 </div>
-                <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>Calorias</span>
+                <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>Balanço calórico</span>
               </div>
 
-              <div className="ring-card prot" onClick={() => navigate('/nutricao')}>
+              <div className="ring-card prot" onClick={() => navigate('/treino')}>
                 <div style={{ position: 'relative', width: 68, height: 68 }}>
                   <svg width="68" height="68" viewBox="0 0 68 68" style={{ transform: 'rotate(-90deg)' }}>
                     <circle cx="34" cy="34" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
-                    <circle cx="34" cy="34" r="28" fill="none" stroke="url(#protGrad)" strokeWidth="5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={protOffset} style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)' }} />
+                    <circle cx="34" cy="34" r="28" fill="none" stroke="url(#protGrad)" strokeWidth="5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={treinoKcalOffset} style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)' }} />
                     <defs>
                       <linearGradient id="protGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="var(--blue)" />
@@ -209,10 +256,10 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#fff', fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 800, lineHeight: 1 }}>{resumoRefeicoes.proteinas}g</div>
-                  <div style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 500, marginTop: 2 }}>/ {PROT_META}g meta</div>
+                  <div style={{ color: '#fff', fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 800, lineHeight: 1 }}>{kcalTreinoDia}</div>
+                  <div style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 500, marginTop: 2 }}>kcal no dia</div>
                 </div>
-                <span style={{ color: 'var(--blue)', fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>Proteínas</span>
+                <span style={{ color: 'var(--blue)', fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>Gasto no treino</span>
               </div>
             </div>
 
@@ -250,24 +297,18 @@ export default function Dashboard() {
 
       {/* ─── Desafio da Semana ─── */}
       <div className="desafio-card anim-3">
-        <div className="desafio-top-bar" />
-        <div className="desafio-bg-glow1" />
-        <div className="desafio-bg-glow2" />
-
         <div className="desafio-body">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 4, height: 22, borderRadius: 4, background: 'linear-gradient(to bottom, #f97316, #ef4444)' }} />
-              <h2 style={{ fontSize: 20, fontFamily: 'var(--font-display)', fontWeight: 800, margin: 0, color: '#fff', letterSpacing: -0.3 }}>
-                Desafio da Semana
-              </h2>
+          <div className="desafio-header">
+            <div className="desafio-title-wrap">
+              <span className="desafio-title-mark" />
+              <h2 className="desafio-title">Desafio da Semana</h2>
             </div>
-            <span className="desafio-badge">🔥 Ativo</span>
+            <span className="tag tag-lime desafio-badge">Ativo</span>
           </div>
 
-          <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+          <div className="desafio-main">
             <div className="desafio-icon">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--lime)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="17" cy="4" r="2" />
                 <path d="M15.5 7.5 12 10l-3 2.5" />
                 <path d="m7 16 3-3 2.5 1.5L16 11" />
@@ -275,43 +316,32 @@ export default function Dashboard() {
                 <path d="M18 13l3 7h-3" />
               </svg>
             </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ color: '#fff', fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-display)', lineHeight: 1.2 }}>
-                🏃 Corrida de Rua
-              </span>
-              <p style={{ color: 'var(--text-2)', fontSize: 12, lineHeight: 1.5, margin: 0, fontWeight: 500 }}>
-                Complete uma corrida ao ar livre esta semana e registre!
+            <div className="desafio-content">
+              <span className="desafio-subtitle">Corrida ao ar livre</span>
+              <p className="desafio-description">
+                Complete uma corrida esta semana e registre sua atividade no treino.
               </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                <span style={{ color: '#8b5cf6', fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>Até Domingo, 29 Mar</span>
-              </div>
+              <span className="desafio-deadline">Até domingo</span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <div className="desafio-stats">
             <div className="desafio-stat">
-              <span style={{ fontSize: 20, lineHeight: 1 }}>🎯</span>
               <span className="stat-value">5 km</span>
               <span className="stat-label">Meta mínima</span>
             </div>
             <div className="desafio-stat">
-              <span style={{ fontSize: 20, lineHeight: 1 }}>⭐</span>
               <span className="stat-value">+50 XP</span>
               <span className="stat-label">Recompensa</span>
             </div>
             <div className="desafio-stat">
-              <span style={{ fontSize: 20, lineHeight: 1 }}>👥</span>
               <span className="stat-value">12</span>
               <span className="stat-label">Participando</span>
             </div>
           </div>
 
-          <button className="desafio-btn" onClick={() => navigate('/treino')}>
-            Aceitar Desafio 💪
+          <button className="desafio-btn btn-primary" onClick={() => navigate('/treino')}>
+            Aceitar desafio
           </button>
         </div>
       </div>

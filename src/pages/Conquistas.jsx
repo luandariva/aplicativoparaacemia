@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchGamificacaoLeaderboard, fetchGamificacaoResumo, fetchUsuarioBadges, setDisplayName, setRankingOptIn } from '../lib/gamificacao'
+import { fetchGamificacaoLeaderboard, fetchGamificacaoMovimentacoesMes, fetchGamificacaoResumo, fetchUsuarioBadges, setDisplayName, setRankingOptIn } from '../lib/gamificacao'
 import { resolveUsuarioDb } from '../lib/usuarioDb'
 import { useAuth } from '../hooks/useAuth'
 import './Conquistas.css'
@@ -71,6 +71,13 @@ const TABS = [
 
 const ALL_BADGE_SLUGS = ['primeiro_treino', 'quatro_refeicoes_dia', 'desafio_semana']
 
+const fmtDataMov = (iso) => {
+  if (!iso) return '—'
+  const d = new Date(`${iso}T12:00:00`)
+  if (Number.isNaN(d.getTime())) return iso
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(d)
+}
+
 export default function Conquistas({ onVoltar, embeddedInPerfil }) {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -85,12 +92,19 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
   const [msg, setMsg] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
+  const [movimentacoesMes, setMovimentacoesMes] = useState([])
+  const [movimentacoesExpandido, setMovimentacoesExpandido] = useState(false)
+  const [movimentacoesLoading, setMovimentacoesLoading] = useState(false)
+  const movimentacoesFetchKeyRef = useRef(null)
 
   useEffect(() => {
     let alive = true
     async function load() {
       if (!user?.id) { setLoading(false); return }
       setLoading(true)
+      setMovimentacoesMes([])
+      setMovimentacoesExpandido(false)
+      movimentacoesFetchKeyRef.current = null
       const { row, usuarioId } = await resolveUsuarioDb(user)
       if (alive) {
         setMeuUsuarioId(usuarioId)
@@ -102,24 +116,45 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
         fetchUsuarioBadges(usuarioId),
         fetchGamificacaoLeaderboard(30),
       ])
-      if (alive) {
-        if (r1.data?.ok) setResumo(r1.data)
-        if (!r2.error) setBadges(r2.data || [])
-        if (!r3.error) setBoard(r3.data || [])
-        setLoading(false)
-      }
+      if (!alive) return
+      if (r1.data?.ok) setResumo(r1.data)
+      if (!r2.error) setBadges(r2.data || [])
+      if (!r3.error) setBoard(r3.data || [])
+      if (alive) setLoading(false)
     }
     load()
     return () => { alive = false }
   }, [user?.id, user?.email])
 
+  useEffect(() => {
+    if (!movimentacoesExpandido || tab !== 'resumo' || loading) return
+    const mes = resumo?.mes_inicio
+    if (!meuUsuarioId || !mes) return
+    const k = `${meuUsuarioId}:${mes}`
+    if (movimentacoesFetchKeyRef.current === k) return
+
+    let alive = true
+    setMovimentacoesLoading(true)
+    fetchGamificacaoMovimentacoesMes(meuUsuarioId, mes).then((m) => {
+      if (!alive) return
+      setMovimentacoesLoading(false)
+      if (!m.error && Array.isArray(m.data)) {
+        setMovimentacoesMes(m.data)
+        movimentacoesFetchKeyRef.current = k
+      } else {
+        setMovimentacoesMes([])
+      }
+    })
+    return () => { alive = false }
+  }, [movimentacoesExpandido, tab, loading, meuUsuarioId, resumo?.mes_inicio])
+
   const badgeSlugsObtidos = new Set(badges.map(ub => ub.badge?.slug).filter(Boolean))
   const desafio = resumo?.desafio
   const prog = desafio?.progresso
 
-  const pontosAtividade = resumo?.pontos_actividade || 0
-  const pontosBonus = resumo?.pontos_bonus_desafio || 0
-  const pontosTotal = resumo?.pontos_semana || 0
+  const pontosAtividade = resumo?.pontos_actividade_mes ?? resumo?.pontos_actividade ?? 0
+  const pontosBonus = resumo?.pontos_bonus_desafio_mes ?? resumo?.pontos_bonus_desafio ?? 0
+  const pontosTotal = resumo?.pontos_mes ?? resumo?.pontos_semana ?? 0
   const detalhe = resumo?.detalhe && typeof resumo.detalhe === 'object' ? resumo.detalhe : null
   const diasComResumo = detalhe?.dias_com_resumo
 
@@ -179,7 +214,7 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
           <>
             <div className="card-gradient anim">
               <p style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.05em', marginBottom: 12 }}>
-                Pontuação da Semana
+                Pontuacao do Mes
               </p>
               <div className="points-grid">
                 {[
@@ -193,13 +228,6 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
                   </div>
                 ))}
               </div>
-              {typeof diasComResumo === 'number' && (
-                <div style={{ marginTop: 16, padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid var(--border)' }}>
-                  <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
-                    <strong style={{ color: 'var(--lime)' }}>{diasComResumo} de 7</strong> dias ativos. Continue assim para completar o desafio!
-                  </p>
-                </div>
-              )}
             </div>
 
             <div className="resumo-card anim" style={{ border: prog?.completo ? '1px solid var(--lime-border)' : '1px solid var(--border)', background: prog?.completo ? 'var(--lime-dim)' : 'var(--bg-3)' }}>
@@ -213,6 +241,13 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
                   </span>
                 )}
               </div>
+              {typeof diasComResumo === 'number' && !prog?.completo && (
+                <div style={{ marginBottom: 16, padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                  <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                    <strong style={{ color: 'var(--lime)' }}>{diasComResumo} de 7</strong> dias ativos. Continue assim para completar o desafio!
+                  </p>
+                </div>
+              )}
               {prog && !prog.completo && desafio && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {[
@@ -254,6 +289,64 @@ export default function Conquistas({ onVoltar, embeddedInPerfil }) {
                   <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--lime)' }}>{item.pts} PTS</span>
                 </div>
               ))}
+            </div>
+
+            <div className="resumo-card anim" style={{ padding: 0, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setMovimentacoesExpandido((v) => !v)}
+                aria-expanded={movimentacoesExpandido}
+                className="profile-expand-btn"
+                style={{ width: '100%', borderRadius: 0, border: 'none', background: 'transparent', padding: '14px 12px' }}
+              >
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 800, textTransform: 'uppercase', textAlign: 'left' }}>
+                  Movimentações no mês
+                </span>
+                <span style={{ color: 'var(--text-3)' }}>{movimentacoesExpandido ? '▴' : '▾'}</span>
+              </button>
+
+              {movimentacoesExpandido && (
+                <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--border)' }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.45, paddingTop: 10 }}>
+                    Tudo que somou pontos no mês corrente (registros, macros, treinos e bônus de desafio).
+                  </p>
+                  {movimentacoesLoading ? (
+                    <div className="dash-loading anim" style={{ padding: '20px 0', minHeight: 80 }}>
+                      <div className="spinner" />
+                    </div>
+                  ) : movimentacoesMes.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '8px 0' }}>
+                      Nenhuma pontuação registrada neste mês ainda.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                      {movimentacoesMes.map((item, i) => (
+                        <div
+                          key={`${item.dataOrdem}-${item.titulo}-${item.ordemNoDia}-${i}`}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '88px 1fr auto',
+                            gap: 8,
+                            alignItems: 'center',
+                            padding: '10px 4px',
+                            borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                          }}
+                        >
+                          <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>
+                            {fmtDataMov(item.data)}
+                          </span>
+                          <span style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 500, lineHeight: 1.35 }}>
+                            {item.titulo}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: item.tipo === 'bonus' ? '#efb144' : 'var(--lime)', whiteSpace: 'nowrap' }}>
+                            +{item.pontos} PTS
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}

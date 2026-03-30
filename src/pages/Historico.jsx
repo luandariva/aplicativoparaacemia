@@ -132,6 +132,40 @@ function EmptyIcon({ size = 48 }) {
   )
 }
 
+function MacroNutrientesCard({ kcal, proteina, carboidrato, gordura, metas }) {
+  const linhas = [
+    { key: 'kcal', label: 'Calorias', atual: toNum(kcal), meta: toNum(metas?.kcal) },
+    { key: 'proteina', label: 'Proteína', atual: toNum(proteina), meta: toNum(metas?.proteina) },
+    { key: 'carboidrato', label: 'Carboidrato', atual: toNum(carboidrato), meta: toNum(metas?.carboidrato) },
+    { key: 'gordura', label: 'Gordura', atual: toNum(gordura), meta: toNum(metas?.gordura) },
+  ]
+
+  return (
+    <div className="macro-card">
+      <h4 className="macro-card-title">Macro Nutrientes</h4>
+      <div className="macro-card-list">
+        {linhas.map((linha) => {
+          const temMeta = linha.meta > 0
+          const proporcao = temMeta ? Math.min(100, (linha.atual / linha.meta) * 100) : 0
+          return (
+            <div key={linha.key} className="macro-card-row">
+              <div className="macro-card-row-head">
+                <span className="macro-card-label">{linha.label}</span>
+                <span className="macro-card-value">
+                  {Math.round(linha.atual)} / {temMeta ? Math.round(linha.meta) : '--'}{linha.key === 'kcal' ? 'kcal' : 'g'}
+                </span>
+              </div>
+              <div className="macro-card-track">
+                <div className="macro-card-fill" style={{ width: `${proporcao}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function Historico() {
   const { user } = useAuth()
   const [periodo, setPeriodo] = useState('semana')
@@ -163,7 +197,7 @@ export default function Historico() {
         const [trRes, refRes] = await Promise.all([
           supabase
             .from('treinos_realizados')
-            .select('id, nome, exercicios, concluido, data_hora')
+            .select('id, nome, exercicios, concluido, data_hora, duracao_min, kcal_gastas')
             .eq('usuario_id', usuarioId)
             .order('data_hora', { ascending: false })
             .limit(100),
@@ -202,6 +236,7 @@ export default function Historico() {
       concluido: t.concluido,
       categoria: t.categoria || '',
       duracao: t.duracao_min || null,
+      kcalGastas: toNum(t.kcal_gastas),
       exercicios: Array.isArray(t.exercicios) ? t.exercicios : [],
     }))
 
@@ -214,6 +249,10 @@ export default function Historico() {
       proteina: toNum(pick(r, ['proteina_g', 'proteina', 'proteinas_g'])),
       carboidrato: toNum(pick(r, ['carboidrato_g', 'carboidrato', 'carbo_g'])),
       gordura: toNum(pick(r, ['gordura_g', 'gordura', 'lipideos_g'])),
+      metaKcal: toNum(pick(r, ['meta_kcal', 'meta_calorias', 'objetivo_kcal', 'meta_kcal_dia'], 1866)),
+      metaProteina: toNum(pick(r, ['meta_proteina_g', 'meta_proteina', 'objetivo_proteina_g'], 190)),
+      metaCarboidrato: toNum(pick(r, ['meta_carboidrato_g', 'meta_carboidrato', 'objetivo_carboidrato_g'], 160)),
+      metaGordura: toNum(pick(r, ['meta_gordura_g', 'meta_gordura', 'objetivo_gordura_g'], 52)),
       status: String(pick(r, ['status', 'situacao'], 'registrada')).toLowerCase().includes('pend') ? 'Pendente' : 'Registrada',
       observacoes: pick(r, ['observacoes', 'observacao', 'descricao'], ''),
     }))
@@ -241,13 +280,40 @@ export default function Historico() {
     const trTotal = filteredByPeriod.filter(i => i.type === 'treino').length
     const refTotal = filteredByPeriod.filter(i => i.type === 'refeicao').length
     const kcalTotal = filteredByPeriod.filter(i => i.type === 'refeicao').reduce((acc, r) => acc + r.kcal, 0)
+    const kcalGastoTreinos = filteredByPeriod.filter(i => i.type === 'treino').reduce((acc, t) => acc + toNum(t.kcalGastas), 0)
     const uniqueDays = new Set(filteredByPeriod.map(i => i.data ? dayKey(i.data) : null).filter(Boolean))
-    return { trTotal, refTotal, kcalTotal, diasAtivos: uniqueDays.size }
+    return { trTotal, refTotal, kcalTotal, kcalGastoTreinos, diasAtivos: uniqueDays.size }
+  }, [filteredByPeriod])
+
+  const periodMacros = useMemo(() => {
+    const refeicoesPeriodo = filteredByPeriod.filter((i) => i.type === 'refeicao')
+    return refeicoesPeriodo.reduce((acc, item) => ({
+      kcal: acc.kcal + toNum(item.kcal),
+      proteina: acc.proteina + toNum(item.proteina),
+      carboidrato: acc.carboidrato + toNum(item.carboidrato),
+      gordura: acc.gordura + toNum(item.gordura),
+      metaKcal: Math.max(acc.metaKcal, toNum(item.metaKcal) || 1866),
+      metaProteina: Math.max(acc.metaProteina, toNum(item.metaProteina) || 190),
+      metaCarboidrato: Math.max(acc.metaCarboidrato, toNum(item.metaCarboidrato) || 160),
+      metaGordura: Math.max(acc.metaGordura, toNum(item.metaGordura) || 52),
+    }), {
+      kcal: 0,
+      proteina: 0,
+      carboidrato: 0,
+      gordura: 0,
+      metaKcal: 1866,
+      metaProteina: 190,
+      metaCarboidrato: 160,
+      metaGordura: 52,
+    })
   }, [filteredByPeriod])
 
   const kcalFormatted = stats.kcalTotal > 9999
     ? `${(stats.kcalTotal / 1000).toFixed(1)}k`
     : stats.kcalTotal
+  const gastoTreinoFormatted = stats.kcalGastoTreinos > 9999
+    ? `${(stats.kcalGastoTreinos / 1000).toFixed(1)}k`
+    : stats.kcalGastoTreinos
 
   const grouped = useMemo(() => {
     const map = new Map()
@@ -296,7 +362,7 @@ export default function Historico() {
       {/* ─── Header ─── */}
       <div className="hist-header">
         <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 2 }}>Acompanhamento</p>
-        <h1 className="hist-title">Histórico</h1>
+        <h1 className="hist-title">Histórico e Desafios</h1>
       </div>
 
       {/* ─── Period Selector ─── */}
@@ -345,6 +411,25 @@ export default function Historico() {
             </div>
           ))}
         </div>
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase' }}>Gasto no treino</span>
+          <strong style={{ fontSize: 14, color: 'var(--lime)' }}>{gastoTreinoFormatted} kcal</strong>
+        </div>
+      </div>
+
+      <div className="anim">
+        <MacroNutrientesCard
+          kcal={periodMacros.kcal}
+          proteina={periodMacros.proteina}
+          carboidrato={periodMacros.carboidrato}
+          gordura={periodMacros.gordura}
+          metas={{
+            kcal: periodMacros.metaKcal,
+            proteina: periodMacros.metaProteina,
+            carboidrato: periodMacros.metaCarboidrato,
+            gordura: periodMacros.metaGordura,
+          }}
+        />
       </div>
 
       {/* ─── Filter Tabs ─── */}
@@ -415,9 +500,12 @@ export default function Historico() {
                       <div className="hist-item-meta">
                         <span>{formatTime(item.data)}</span>
                         {isTreino ? (
-                          <span className={`badge-status ${item.concluido ? 'concluido' : 'pendente'}`}>
-                            {item.concluido ? '✓ OK' : '○ PENDENTE'}
-                          </span>
+                          <>
+                            {item.kcalGastas > 0 && <span style={{ color: 'var(--lime)', fontWeight: 700 }}>{item.kcalGastas} kcal</span>}
+                            <span className={`badge-status ${item.concluido ? 'concluido' : 'pendente'}`}>
+                              {item.concluido ? '✓ OK' : '○ PENDENTE'}
+                            </span>
+                          </>
                         ) : (
                           <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{item.kcal} kcal</span>
                         )}
@@ -434,6 +522,7 @@ export default function Historico() {
                           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                             {item.categoria && <span className="tag" style={{ background: 'var(--lime-dim)', color: 'var(--lime)', border: '1px solid var(--lime-border)' }}>{item.categoria}</span>}
                             {item.duracao && <span className="tag">{item.duracao} min</span>}
+                            {item.kcalGastas > 0 && <span className="tag" style={{ color: 'var(--lime)', border: '1px solid var(--lime-border)' }}>{item.kcalGastas} kcal gastas</span>}
                             <span className="tag">{item.exercicios.length} exs</span>
                           </div>
 
@@ -455,19 +544,18 @@ export default function Historico() {
                         </div>
                       ) : (
                         <div className="anim">
-                          <div className="macro-grid">
-                            {[
-                              { label: 'KCAL', val: item.kcal, color: 'var(--red)' },
-                              { label: 'PROT', val: item.proteina, color: 'var(--blue)' },
-                              { label: 'CARB', val: item.carboidrato, color: 'var(--amber)' },
-                              { label: 'GORD', val: item.gordura, color: 'var(--purple)' },
-                            ].map((m) => (
-                              <div key={m.label} className="macro-item">
-                                <div className="macro-val" style={{ color: m.color }}>{m.val}</div>
-                                <div className="macro-lab">{m.label}</div>
-                              </div>
-                            ))}
-                          </div>
+                          <MacroNutrientesCard
+                            kcal={item.kcal}
+                            proteina={item.proteina}
+                            carboidrato={item.carboidrato}
+                            gordura={item.gordura}
+                            metas={{
+                              kcal: item.metaKcal,
+                              proteina: item.metaProteina,
+                              carboidrato: item.metaCarboidrato,
+                              gordura: item.metaGordura,
+                            }}
+                          />
 
                           {item.observacoes && (
                             <div className="input-field" style={{ padding: 12, borderRadius: 12, background: 'var(--bg-3)', opacity: 0.8 }}>

@@ -52,8 +52,8 @@ function DesafioBar({ label, atual, meta, cor, completo }) {
 }
 
 /**
- * Widget do Dashboard: pontos da semana (anel), desafio semanal (3 barras) e posição no ranking.
- * Dados via `rpc_gamificacao_resumo`.
+ * Widget do Dashboard: pontos do mes (anel), desafio semanal (3 barras) e posicao no ranking mensal.
+ * Dados via `rpc_gamificacao_resumo` com fallback de compatibilidade.
  */
 export default function GamifWidget({ onVerConquistas }) {
   const { user } = useAuth()
@@ -99,10 +99,10 @@ export default function GamifWidget({ onVerConquistas }) {
 
   const desafio = data.desafio
   const prog = desafio?.progresso
-  const pontos = data.pontos_semana || 0
-  const bonus = data.pontos_bonus_desafio || 0
-  const maxSemana = 7 * (10 + 15 + 40) + (desafio?.bonus_pontos || 25)
-  const pctSemana = Math.min(100, Math.round((pontos / maxSemana) * 100))
+  const pontos = data.pontos_mes ?? data.pontos_semana ?? 0
+  const bonus = data.pontos_bonus_desafio_mes ?? data.pontos_bonus_desafio ?? 0
+  const maxMes = 31 * (10 + 15 + 40) + 4 * (desafio?.bonus_pontos || 25)
+  const pctMes = Math.min(100, Math.round((pontos / maxMes) * 100))
   const desafioOk = prog?.completo
 
   return (
@@ -112,7 +112,7 @@ export default function GamifWidget({ onVerConquistas }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <p style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.05em' }}>
-          Progresso da Semana
+          Progresso do Mes
         </p>
         <button
           type="button"
@@ -125,7 +125,7 @@ export default function GamifWidget({ onVerConquistas }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <RingProgress pct={pctSemana} size={68} stroke={6} color="var(--lime)">
+        <RingProgress pct={pctMes} size={68} stroke={6} color="var(--lime)">
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontSize: 18, fontWeight: 900, color: 'var(--lime)', lineHeight: 1, fontFamily: 'var(--font-display)' }}>{pontos}</p>
             <p style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase' }}>pts</p>

@@ -35,6 +35,12 @@ function iniciais(str) {
   return s.slice(0, 1).toUpperCase()
 }
 
+function toPositiveNumberOrNull(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}
+
 export function Nutricao() {
   const { user } = useAuth()
   const [diaSelecionado, setDiaSelecionado] = useState(() => {
@@ -235,16 +241,17 @@ export function Nutricao() {
         <h2 style={{ fontSize: 18, fontWeight: 900, marginBottom: 16, fontFamily: 'var(--font-display)' }}>MACRO NUTRIENTES</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {[
-            { nome: 'Proteína', atual: resumo.proteinaAtual, meta: resumo.proteinaMeta, cor: 'var(--blue)' },
-            { nome: 'Carboidrato', atual: resumo.carboAtual, meta: resumo.carboMeta, cor: 'var(--amber)' },
-            { nome: 'Gordura', atual: resumo.gorduraAtual, meta: resumo.gorduraMeta, cor: 'var(--purple)' },
+            { nome: 'Calorias', atual: resumo.consumidoKcal, meta: resumo.kcalMeta, cor: 'var(--lime)', unidade: 'kcal' },
+            { nome: 'Proteína', atual: resumo.proteinaAtual, meta: resumo.proteinaMeta, cor: 'var(--blue)', unidade: 'g' },
+            { nome: 'Carboidrato', atual: resumo.carboAtual, meta: resumo.carboMeta, cor: 'var(--amber)', unidade: 'g' },
+            { nome: 'Gordura', atual: resumo.gorduraAtual, meta: resumo.gorduraMeta, cor: 'var(--purple)', unidade: 'g' },
           ].map(m => {
             const pct = m.meta > 0 ? Math.min(100, Math.round((m.atual / m.meta) * 100)) : 0
             return (
               <div key={m.nome}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 800, marginBottom: 6, textTransform: 'uppercase' }}>
                   <span style={{ color: 'var(--text-2)' }}>{m.nome}</span>
-                  <span style={{ color: 'var(--text-3)' }}>{m.atual}{m.meta > 0 ? ` / ${m.meta}g` : 'g'}</span>
+                  <span style={{ color: 'var(--text-3)' }}>{m.atual}{m.meta > 0 ? ` / ${m.meta}${m.unidade}` : m.unidade}</span>
                 </div>
                 <div className="macro-bar-container">
                   <div className="macro-bar-fill" style={{ width: `${pct}%`, background: m.cor }} />
@@ -319,6 +326,7 @@ export function Perfil() {
   const { user } = useAuth()
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [expandido, setExpandido] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -341,6 +349,20 @@ export function Perfil() {
     || user?.email?.split('@')[0]
     || 'Aluno'
 
+  const pesoAtualKg = toPositiveNumberOrNull(pick(row || {}, ['peso_atual_kg', 'peso_kg', 'peso']))
+  const alturaCm = toPositiveNumberOrNull(pick(row || {}, ['altura_cm', 'altura']))
+  const objetivo = String(pick(row || {}, ['objetivo', 'objetivo_principal'], '') || '').trim() || null
+  const restricoes = String(pick(row || {}, ['restricoes', 'restricoes_alimentares', 'restricao'], '') || '').trim() || null
+  const idade = toPositiveNumberOrNull(pick(row || {}, ['idade']))
+
+  const detalhesPerfil = [
+    { label: 'Peso', value: pesoAtualKg != null ? `${pesoAtualKg} kg` : 'Não informado' },
+    { label: 'Altura', value: alturaCm != null ? `${alturaCm} cm` : 'Não informado' },
+    { label: 'Objetivo', value: objetivo || 'Não informado' },
+    { label: 'Restrições alimentares', value: restricoes || 'Não informado' },
+    { label: 'Idade', value: idade != null ? `${idade} anos` : 'Não informada' },
+  ]
+
   return (
     <div className="place-container anim">
       <div className="place-header">
@@ -354,6 +376,29 @@ export function Perfil() {
           <h2>{nomeMostrado}</h2>
           <p>{loading ? 'Carregando...' : (user?.email || '—')}</p>
         </div>
+      </div>
+
+      <div className="profile-extra-card anim">
+        <button
+          type="button"
+          className="profile-expand-btn"
+          onClick={() => setExpandido((prev) => !prev)}
+          aria-expanded={expandido}
+        >
+          <span>Dados físicos e objetivos</span>
+          <span>{expandido ? '▴' : '▾'}</span>
+        </button>
+
+        {expandido && (
+          <div className="profile-extra-grid">
+            {detalhesPerfil.map((item) => (
+              <div key={item.label} className="profile-extra-item">
+                <span className="profile-extra-label">{item.label}</span>
+                <span className="profile-extra-value">{loading ? 'Carregando...' : item.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="anim">

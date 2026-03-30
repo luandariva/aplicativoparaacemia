@@ -312,6 +312,52 @@ function labelCategoria(categoria) {
   return 'Treino'
 }
 
+function labelCategoriaChip(categoriaId) {
+  if (categoriaId === 'all') return 'Todos'
+  if (categoriaId === 'chest') return 'Peitoral'
+  if (categoriaId === 'upper') return 'Costas e biceps'
+  if (categoriaId === 'legs') return 'Pernas'
+  return 'Treino'
+}
+
+function nomeTreinoParaCard(nome) {
+  const original = String(nome || '').trim()
+  if (!original) return 'Treino'
+  const semPrefixo = original.replace(/^treino\s+geral\s*[-:]\s*/i, '').trim()
+  return semPrefixo || original
+}
+
+function normalizePesoKg(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}
+
+function calcularKcalTreino(exercicios, pesoKg) {
+  if (!Array.isArray(exercicios) || exercicios.length === 0) return null
+  if (!Number.isFinite(pesoKg) || pesoKg <= 0) return null
+
+  const total = exercicios.reduce((acc, ex) => {
+    const met = Number(ex?.met) || 0
+    if (met <= 0) return acc
+    const series = Math.max(1, Number(ex?.series) || 1)
+    const duracaoMin = Math.max(1, Math.round(series * 2.5))
+    const kcalEx = (met * 3.5 * pesoKg / 200) * duracaoMin
+    return acc + kcalEx
+  }, 0)
+
+  if (!Number.isFinite(total) || total <= 0) return null
+  return Math.round(total)
+}
+
+function personalAvatarLabel(nome) {
+  const clean = String(nome || '').trim()
+  if (!clean) return '??'
+  const partes = clean.split(/\s+/).filter(Boolean)
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase()
+  return `${partes[0][0] || ''}${partes[1][0] || ''}`.toUpperCase()
+}
+
 /**
  * Ícones alinhados ao tipo de treino: pilha (todos), supino (peito), bíceps (MS), agachamento (pernas).
  * Acessível via aria-label no botão.
@@ -505,6 +551,7 @@ function ExercicioCard({ ex, index, onToggleSerie, onToggleConcluido, expandido,
 export default function Treino() {
   const { user } = useAuth()
   const [usuarioDbId, setUsuarioDbId] = useState(null)
+  const [pesoUsuarioKg, setPesoUsuarioKg] = useState(null)
   const [treinosPlano, setTreinosPlano] = useState([])
   const [listaLoading, setListaLoading] = useState(true)
   const [listaError, setListaError] = useState('')
@@ -546,8 +593,9 @@ export default function Treino() {
       setListaAviso('')
 
       try {
-        const { usuarioId } = await resolveUsuarioDb(user)
+        const { usuarioId, row } = await resolveUsuarioDb(user)
         if (alive) setUsuarioDbId(usuarioId)
+        if (alive) setPesoUsuarioKg(normalizePesoKg(row?.peso_atual_kg))
 
         const planoSelect =
           'id, nome, personal_id, data_prevista, exercicios, criado_pelo_aluno, categoria, created_at, catalogo, personais(nome)'
@@ -825,6 +873,7 @@ export default function Treino() {
       duracao_min: Math.max(1, Math.round(Number(ex.series) * 2.5)),
     }))
     const duracaoTotalMin = exerciciosResumo.reduce((acc, e) => acc + e.duracao_min, 0)
+    const kcalTreinoRealizado = calcularKcalTreino(treino.exercicios, pesoUsuarioKg)
 
     try {
       const planoId = isPlanoUuid(treino.id) ? treino.id : null
@@ -834,7 +883,7 @@ export default function Treino() {
         nome: treino.nome,
         exercicios: exerciciosResumo,
         duracao_min: duracaoTotalMin,
-        kcal_gastas: null,
+        kcal_gastas: kcalTreinoRealizado,
         concluido: true,
       })
       if (insertErr) throw insertErr
@@ -847,7 +896,8 @@ export default function Treino() {
           r.ranking_opt_in && r.posicao_ranking > 0
             ? ` · Ranking #${r.posicao_ranking}`
             : ''
-        msgPontos = `Treino registrado! Semana: ${r.pontos_semana} pts${rank}`
+        const pontosMes = r.pontos_mes ?? r.pontos_semana ?? 0
+        msgPontos = `Treino registrado! Mes: ${pontosMes} pts${rank}`
       }
 
       let badgeDesbloqueado = null
@@ -889,10 +939,10 @@ export default function Treino() {
       <>
       {toastLayer}
       <div className="treino-container">
-        <div className="treino-header">
-          <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 2 }}>Seu Plano</p>
-          <h1 className="treino-title">Treinos</h1>
-        </div>
+        <section className="treino-hero">
+          <p className="treino-overline">Seu plano de treino</p>
+          <h1 className="treino-title">Explore <span>Treinos</span></h1>
+        </section>
 
         {listaLoading && (
           <div className="dash-loading anim">
@@ -912,17 +962,17 @@ export default function Treino() {
           </div>
         )}
 
-        <div className="resumo-card anim" style={{ padding: 12 }}>
+        <div className="resumo-card anim treino-builder-card">
           <button
             onClick={() => setBuilderExpandido((prev) => !prev)}
             className="btn-add-treino"
           >
-            {builderExpandido ? 'Fechar Criador' : '+ Criar Treino Personalizado'}
-            <span style={{ marginLeft: 'auto' }}>{builderExpandido ? '▴' : '▾'}</span>
+            {builderExpandido ? 'Fechar criador personalizado' : '+ Criar treino personalizado'}
+            <span className="treino-builder-chevron">{builderExpandido ? '▴' : '▾'}</span>
           </button>
           
           {builderExpandido && (
-            <div className="anim" style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+            <div className="anim treino-builder-body">
               <div className="field">
                 <input
                   className="input"
@@ -944,15 +994,15 @@ export default function Treino() {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="treino-builder-exercicios">
                 {builderExercicios.map((exercicio, index) => (
-                  <div key={exercicio.id} className="resumo-card" style={{ padding: 12, background: 'var(--bg-4)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <p style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-2)' }}>EXERCÍCIO {index + 1}</p>
+                  <div key={exercicio.id} className="resumo-card treino-builder-exercicio-card">
+                    <div className="treino-builder-exercicio-head">
+                      <p className="treino-builder-exercicio-title">EXERCÍCIO {index + 1}</p>
                       <button
                         onClick={() => removerExercicioBuilder(exercicio.id)}
                         disabled={builderExercicios.length === 1}
-                        style={{ color: 'var(--red)', fontSize: 11, fontWeight: 700, background: 'none', border: 'none' }}
+                        className="treino-builder-remove"
                       >
                         Remover
                       </button>
@@ -966,7 +1016,7 @@ export default function Treino() {
                       style={{ marginBottom: 8 }}
                     />
 
-                    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 8 }}>
+                    <div className="treino-builder-grid">
                       <input className="input" value={exercicio.series} onChange={(e) => atualizarExercicioBuilder(exercicio.id, 'series', e.target.value)} placeholder="Séries" inputMode="numeric" />
                       <input className="input" value={exercicio.repeticoes} onChange={(e) => atualizarExercicioBuilder(exercicio.id, 'repeticoes', e.target.value)} placeholder="Reps" inputMode="numeric" />
                       <input className="input" value={exercicio.carga} onChange={(e) => atualizarExercicioBuilder(exercicio.id, 'carga', e.target.value)} placeholder="Kg" inputMode="numeric" />
@@ -983,13 +1033,13 @@ export default function Treino() {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="treino-builder-actions">
                 <button onClick={adicionarExercicioBuilder} className="btn" style={{ flex: 1, fontSize: 12 }}>+ Exercício</button>
                 <button
                   onClick={salvarTreinoPersonalizado}
                   disabled={!builderValido || builderSalvando}
-                  className="btn-primary"
-                  style={{ flex: 1, fontSize: 12 }}
+                  className="btn-primary treino-cta-btn"
+                  style={{ flex: 1 }}
                 >
                   {builderSalvando ? 'Salvando...' : 'Salvar Treino'}
                 </button>
@@ -1009,10 +1059,32 @@ export default function Treino() {
             className="search-input"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar treino ou exercício..."
+            placeholder="Buscar treino ou instrutor..."
           />
-          <span className="search-icon">🔍</span>
+          <span className="search-icon">⌕</span>
         </div>
+
+        <section className="treino-personais">
+          <div className="treino-section-header">
+            <h3>Personal Trainers</h3>
+            <span>Ver todos</span>
+          </div>
+          <div className="treino-personais-scroll">
+            {personais.filter((p) => p !== 'todos').map((personal) => {
+              const ativo = personal === filtroPersonal
+              return (
+                <button
+                  key={personal}
+                  onClick={() => setFiltroPersonal(ativo ? 'todos' : personal)}
+                  className={`treino-personal-chip ${ativo ? 'active' : ''}`}
+                >
+                  <div className="treino-personal-avatar">{personalAvatarLabel(personal)}</div>
+                  <span>{personal}</span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
 
         <div className="filter-scroll">
           {CATEGORIAS.map((cat) => {
@@ -1024,47 +1096,56 @@ export default function Treino() {
                 className={`filter-btn ${ativo ? 'active' : ''}`}
               >
                 <IconFiltroCategoria id={cat.id} />
-                {cat.label}
+                {labelCategoriaChip(cat.id)}
               </button>
             )
           })}
         </div>
 
-        <div className="filter-scroll" style={{ paddingTop: 0 }}>
-          {personais.map((personal) => {
-            const ativo = personal === filtroPersonal
+        <section className="treino-featured">
+          <div className="treino-section-header">
+            <h3>Treinos em destaque</h3>
+            <span>{treinosFiltrados.length} treinos</span>
+          </div>
+        </section>
+
+        <div className="treino-list-grid">
+          {!listaLoading && treinosFiltrados.map((t, i) => {
+            const kcalTreino = calcularKcalTreino(t.exercicios, pesoUsuarioKg)
             return (
-              <button
-                key={personal}
-                onClick={() => setFiltroPersonal(personal)}
-                className={`filter-btn ${ativo ? 'active' : ''}`}
+              <div
+                key={t.id}
+                className="treino-card anim"
+                style={{ animationDelay: `${i * 0.05}s` }}
+                onClick={() => selecionarTreino(t)}
               >
-                {personal === 'todos' ? 'Todos os instrutores' : personal}
-              </button>
-            )
-          })}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {!listaLoading && treinosFiltrados.map((t, i) => (
-            <div
-              key={t.id}
-              className="treino-card anim"
-              style={{ animationDelay: `${i * 0.05}s` }}
-              onClick={() => selecionarTreino(t)}
-            >
-              <img src={t.thumb} className="treino-thumb" alt={t.nome} />
-              <div className="treino-info">
-                <h3 className="treino-name">{t.nome}</h3>
-                <div className="treino-meta">
-                  <span className="tag">{labelCategoria(t.categoria)}</span>
-                  <span>{t.exercicios.length} exs</span>
-                  {t.personalizado && <span className="tag" style={{ background: 'var(--lime-dim)', color: 'var(--lime)' }}>Personal</span>}
+                <div className="treino-thumb-wrap">
+                  <img src={t.thumb} className="treino-thumb" alt={t.nome} />
+                  <div className="treino-thumb-overlay" />
+                  <div className="treino-card-flags">
+                    {/^treino\s+geral\b/i.test(String(t.nome || '')) && (
+                      <span className="tag treino-flag treino-flag-outline">Treino geral</span>
+                    )}
+                    <span className="tag treino-flag">{labelCategoria(t.categoria)}</span>
+                    <span className="tag treino-flag treino-flag-kcal">
+                      {kcalTreino != null ? `${kcalTreino} kcal` : '-- kcal'}
+                    </span>
+                    <span className="tag treino-flag treino-flag-dark">{Math.max(15, t.exercicios.length * 5)} min</span>
+                  </div>
+                </div>
+                <div className="treino-info">
+                  <div>
+                    <h3 className="treino-name">{nomeTreinoParaCard(t.nome)}</h3>
+                    <div className="treino-meta">
+                      <span>{t.exercicios.length} exercicios</span>
+                      {t.personalizado && <span className="tag treino-tag-custom">Personalizado</span>}
+                    </div>
+                  </div>
+                  <div className="treino-badge">▶</div>
                 </div>
               </div>
-              <div className="treino-badge">▶</div>
-            </div>
-          ))}
+            )
+          })}
 
           {!listaLoading && treinosFiltrados.length === 0 && (
             <div className="dash-warning" style={{ textAlign: 'center' }}>
@@ -1098,10 +1179,7 @@ export default function Treino() {
         </p>
         <button
           onClick={() => { setConcluido(false); setTreinoSelecionadoId(null) }}
-          style={{
-            background: 'var(--lime)', color: '#111', borderRadius: 12,
-            fontWeight: 800, padding: '12px 18px',
-          }}
+          className="btn-primary treino-cta-btn"
         >
           Voltar para catalogo
         </button>
@@ -1113,20 +1191,15 @@ export default function Treino() {
   return (
     <>
     {toastLayer}
-    <div style={{
-      height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column',
-      paddingTop: 'var(--safe-top)', overflow: 'hidden', background: 'var(--bg)'
-    }}>
-      <div style={{ padding: '16px 16px 0', flexShrink: 0 }}>
-        <div className="resumo-card" style={{ 
-          minHeight: 160, 
-          backgroundImage: `linear-gradient(0deg, var(--bg-3), rgba(0,0,0,0.25)), url(${treino.thumb || THUMB_PERSONALIZADO})`,
-          backgroundSize: 'cover', backgroundPosition: 'center', 
-          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          border: '1px solid var(--border-2)',
-          padding: 16
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="treino-detail-page">
+      <div className="treino-detail-top">
+        <div
+          className="resumo-card treino-detail-hero"
+          style={{
+            backgroundImage: `linear-gradient(0deg, var(--bg-3), rgba(0,0,0,0.25)), url(${treino.thumb || THUMB_PERSONALIZADO})`,
+          }}
+        >
+          <div className="treino-detail-hero-head">
             <button
               onClick={() => setTreinoSelecionadoId(null)}
               className="btn"
@@ -1138,27 +1211,22 @@ export default function Treino() {
               {concluidos}/{totalExercicios} EXS
             </span>
           </div>
-          <div>
+          <div className="treino-detail-hero-body">
             <h2 className="treino-name" style={{ fontSize: 24, marginBottom: 4 }}>{treino.nome}</h2>
-            <p style={{ color: 'var(--text-3)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <p className="treino-detail-personal">
               Instrutor: {treino.personal}
             </p>
           </div>
         </div>
 
-        <div style={{ height: 6, background: 'var(--bg-3)', borderRadius: 999, marginTop: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
+        <div className="treino-detail-progress-wrap">
           <div style={{ height: '100%', width: `${progresso}%`, background: 'var(--lime)', transition: 'width .6s cubic-bezier(0.16, 1, 0.3, 1)', boxShadow: '0 0 10px var(--lime-dim)' }} />
         </div>
       </div>
 
       <div
         ref={scrollRef}
-        className="anim"
-        style={{
-          flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px',
-          paddingBottom: 'calc(100px + var(--safe-bottom))', display: 'flex',
-          flexDirection: 'column', gap: 12,
-        }}
+        className="anim treino-detail-list"
       >
         {treino.exercicios.map((ex, i) => (
           <ExercicioCard
@@ -1176,10 +1244,9 @@ export default function Treino() {
           <button
             onClick={finalizarTreino}
             disabled={concluindo || concluidos !== totalExercicios}
-            className={concluidos === totalExercicios ? "btn-primary" : "btn"}
+            className={concluidos === totalExercicios ? 'btn-primary treino-cta-btn' : 'btn treino-cta-btn treino-cta-btn--disabled'}
             style={{
               width: '100%',
-              padding: 18,
               marginTop: 8,
               opacity: (concluindo || (concluidos !== totalExercicios)) ? 0.6 : 1
             }}
